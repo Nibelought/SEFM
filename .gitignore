@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# Local dev tooling / assistant config
+CLAUDE.md
+.claude/
+
+# Project data — never committed
+/data/
+/models/
+/pdfs/
+*.gguf
+*.bin
+*.onnx
+*.safetensors
+
+# UI smoke artifacts
+/ui_*.png
+
+# Local config
+.env
+.env.*
+!.env.example
+settings.local.toml
+
+# OS
+Thumbs.db
+.DS_Store
