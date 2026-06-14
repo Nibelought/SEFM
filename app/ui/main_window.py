@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QMainWindow,
     QStatusBar,
     QTabWidget,
+    QToolButton,
 )
 
 from app.service import AppService
@@ -20,9 +22,11 @@ class MainWindow(QMainWindow):
         self.service = service
         self._settings_dlg: SettingsDialog | None = None
         self.setWindowTitle("SEFM — Offline ICS/SCADA RAG Assistant")
-        self.resize(1100, 720)
+        self.resize(1100, 740)
+        self.setMinimumSize(820, 560)
 
         self.tabs = QTabWidget(self)
+        self.tabs.setDocumentMode(True)
         self.library = LibraryView(service)
         self.search = SearchView(service)
         self.ask = AskView(service)
@@ -31,21 +35,28 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.library, "Library")
         self.setCentralWidget(self.tabs)
 
+        # Settings lives as a gear in the tab-bar corner — no near-empty menu bar.
+        self.btn_settings = QToolButton(self)
+        self.btn_settings.setText("⚙")
+        self.btn_settings.setToolTip("Settings (Ctrl+,)")
+        self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_settings.clicked.connect(self._open_settings)
+        self.tabs.setCornerWidget(self.btn_settings, Qt.Corner.TopRightCorner)
+
         self.library.documents_changed.connect(self._refresh_status)
 
         self.setStatusBar(QStatusBar(self))
         self._refresh_status()
 
-        m_file = self.menuBar().addMenu("&File")
-        act_settings = QAction("&Settings...", self)
+        # Keyboard shortcuts without a menu bar to host them.
+        act_settings = QAction(self)
         act_settings.setShortcut("Ctrl+,")
         act_settings.triggered.connect(self._open_settings)
-        m_file.addAction(act_settings)
-        m_file.addSeparator()
-        act_quit = QAction("&Quit", self)
+        self.addAction(act_settings)
+        act_quit = QAction(self)
         act_quit.setShortcut("Ctrl+Q")
         act_quit.triggered.connect(self.close)
-        m_file.addAction(act_quit)
+        self.addAction(act_quit)
 
     def _open_settings(self) -> None:
         if self._settings_dlg is None or not self._settings_dlg.isVisible():

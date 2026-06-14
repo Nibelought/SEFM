@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
@@ -15,7 +16,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSplitter,
     QTextEdit,
     QVBoxLayout,
@@ -27,6 +27,7 @@ from app.generation.citation_guard import REFUSAL, parse_citations, validate_ans
 from app.generation.prompts import build_prompt
 from app.retrieval.types import Chunk, Citation
 from app.service import AppService
+from app.ui.flow_layout import FlowContainer
 from app.ui.pdf_viewer import PdfViewerDialog
 
 log = logging.getLogger(__name__)
@@ -116,24 +117,30 @@ class _StreamWorker(QRunnable):
                 self.signals.failed.emit(f"{type(e).__name__}: {e}")
 
 
-class _CitationRow(QWidget):
-    """One citation: an 'open PDF' button and a 'Verify' button side by side."""
+class _CitationChip(QFrame):
+    """A rounded pill for one cited source/page, with Open and Verify actions."""
 
     def __init__(self, citation: Citation, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("citationChip")
         self.citation = citation
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 4, 0)
-        layout.setSpacing(2)
+        layout.setContentsMargins(12, 4, 6, 4)
+        layout.setSpacing(4)
 
-        self.open_btn = QPushButton(f"  {citation.source} — p.{citation.page}  ")
+        label = QLabel(f"\U0001F4C4  {citation.source}  ·  p.{citation.page}")
+
+        self.open_btn = QPushButton("Open ↗")
+        self.open_btn.setObjectName("chipOpen")
+        self.open_btn.setToolTip("Open the source PDF at this page")
         self.open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.verify_btn = QPushButton("Verify ↗")
+        self.verify_btn = QPushButton("Verify")
+        self.verify_btn.setObjectName("chipVerify")
         self.verify_btn.setToolTip("Check this citation against the source PDF page")
         self.verify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.verify_btn.setFixedWidth(72)
 
+        layout.addWidget(label)
         layout.addWidget(self.open_btn)
         layout.addWidget(self.verify_btn)
 
@@ -242,19 +249,29 @@ class AskView(QWidget):
         self.pool = QThreadPool.globalInstance()
         self._worker: _StreamWorker | None = None
         self._retrieved: list[Chunk] = []
+        # Response-speed tracking (all updated on the UI thread).
+        self._t_start = 0.0
+        self._t_first_token = 0.0
+        self._token_count = 0
         self._build()
         self._refresh_llm_state()
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(10)
 
         row = QHBoxLayout()
+        row.setSpacing(8)
         self.query = QLineEdit()
         self.query.setPlaceholderText(
             "Ask anything grounded in your indexed documents..."
         )
+        self.query.setClearButtonEnabled(True)
         self.query.returnPressed.connect(self._ask)
         self.btn_ask = QPushButton("Ask")
+        self.btn_ask.setProperty("accent", True)
+        self.btn_ask.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_ask.clicked.connect(self._ask)
         self.btn_stop = QPushButton("Stop")
         self.btn_stop.setEnabled(False)
@@ -270,25 +287,35 @@ class AskView(QWidget):
         mono = QFont("Consolas")
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.answer.setFont(mono)
+        self.answer.document().setDocumentMargin(12)
         layout.addWidget(self.answer, stretch=1)
 
-        cite_label = QLabel("Citations")
-        cite_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(cite_label)
+        # Citations live in a panel that stays hidden until there's something
+        # to show — no more empty gray box under every answer.
+        self.citations_panel = QWidget()
+        cp = QVBoxLayout(self.citations_panel)
+        cp.setContentsMargins(0, 0, 0, 0)
+        cp.setSpacing(6)
+        self.cite_header = QLabel("Citations")
+        self.cite_header.setProperty("heading", True)
+        cp.addWidget(self.cite_header)
+        self.citation_flow = FlowContainer(spacing=8)
+        cp.addWidget(self.citation_flow)
+        self.citations_panel.setVisible(False)
+        layout.addWidget(self.citations_panel)
 
-        self.citation_area = QScrollArea()
-        self.citation_area.setWidgetResizable(True)
-        self.citation_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.citation_area.setFixedHeight(70)
-        self.citation_host = QWidget()
-        self.citation_layout = QHBoxLayout(self.citation_host)
-        self.citation_layout.setContentsMargins(0, 0, 0, 0)
-        self.citation_layout.addStretch(1)
-        self.citation_area.setWidget(self.citation_host)
-        layout.addWidget(self.citation_area)
-
+        status_row = QHBoxLayout()
         self.status = QLabel()
-        layout.addWidget(self.status)
+        self.status.setProperty("muted", True)
+        self.speed = QLabel()
+        self.speed.setProperty("muted", True)
+        self.speed.setToolTip(
+            "Generation speed. 'first token' is the latency before the model "
+            "starts answering; tok/s is the streaming throughput."
+        )
+        status_row.addWidget(self.status, stretch=1)
+        status_row.addWidget(self.speed)
+        layout.addLayout(status_row)
 
     def refresh(self) -> None:
         self._refresh_llm_state()
@@ -313,6 +340,10 @@ class AskView(QWidget):
         self._clear_citations()
         self.answer.clear()
         self.status.setText("Retrieving...")
+        self.speed.clear()
+        self._t_start = time.perf_counter()
+        self._t_first_token = 0.0
+        self._token_count = 0
         self.btn_ask.setEnabled(False)
         self.btn_stop.setEnabled(True)
 
@@ -338,12 +369,36 @@ class AskView(QWidget):
         self.status.setText(f"Generating from {len(chunks)} chunk(s)...")
 
     def _on_token(self, delta: str) -> None:
+        now = time.perf_counter()
+        if self._token_count == 0:
+            self._t_first_token = now
+        self._token_count += 1
+
         cursor = self.answer.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         cursor.insertText(delta)
         self.answer.setTextCursor(cursor)
 
+        # Live throughput, refreshed every few tokens to avoid label churn.
+        if self._token_count % 4 == 0:
+            gen = now - self._t_first_token
+            rate = self._token_count / gen if gen > 0 else 0.0
+            self.speed.setText(f"⏱ first token {self._t_first_token - self._t_start:.1f}s · {rate:.1f} tok/s")
+
+    def _set_final_speed(self) -> None:
+        if self._token_count == 0:
+            self.speed.clear()
+            return
+        ttft = self._t_first_token - self._t_start
+        gen = time.perf_counter() - self._t_first_token
+        rate = self._token_count / gen if gen > 0 else 0.0
+        self.speed.setText(
+            f"⏱ {self._token_count} tok in {gen:.1f}s · "
+            f"{rate:.1f} tok/s · first token {ttft:.1f}s"
+        )
+
     def _on_done(self, raw: str) -> None:
+        self._set_final_speed()
         if raw:
             validated = validate_answer(raw, self._retrieved)
             log.debug(
@@ -377,12 +432,14 @@ class AskView(QWidget):
         self.btn_stop.setEnabled(False)
 
     def _clear_citations(self) -> None:
-        while self.citation_layout.count() > 1:
-            item = self.citation_layout.takeAt(0)
+        flow = self.citation_flow.flow
+        while flow.count():
+            item = flow.takeAt(0)
             if item is not None:
                 w = item.widget()
                 if w is not None:
                     w.deleteLater()
+        self.citations_panel.setVisible(False)
 
     def _chunk_for_citation(self, citation: Citation) -> Chunk | None:
         for chunk in self._retrieved:
@@ -393,15 +450,20 @@ class AskView(QWidget):
     def _render_citations(self, citations: list[Citation]) -> None:
         self._clear_citations()
         seen: set[tuple[str, int]] = set()
+        count = 0
         for cit in citations:
             key = (cit.source, cit.page)
             if key in seen:
                 continue
             seen.add(key)
-            row = _CitationRow(cit)
-            row.open_btn.clicked.connect(lambda _=False, c=cit: self._open_citation(c))
-            row.verify_btn.clicked.connect(lambda _=False, c=cit: self._verify_citation(c))
-            self.citation_layout.insertWidget(self.citation_layout.count() - 1, row)
+            chip = _CitationChip(cit)
+            chip.open_btn.clicked.connect(lambda _=False, c=cit: self._open_citation(c))
+            chip.verify_btn.clicked.connect(lambda _=False, c=cit: self._verify_citation(c))
+            self.citation_flow.flow.addWidget(chip)
+            count += 1
+        if count:
+            self.cite_header.setText(f"Citations ({count})")
+            self.citations_panel.setVisible(True)
 
     def _open_citation(self, citation: Citation) -> None:
         path = self.service.resolve_source_path(citation.source)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThreadPool, Signal
@@ -34,10 +35,16 @@ class LibraryView(QWidget):
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(10)
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         self.btn_add_files = QPushButton("Add PDFs...")
+        self.btn_add_files.setProperty("accent", True)
+        self.btn_add_files.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add_folder = QPushButton("Add Folder...")
+        self.btn_add_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_remove = QPushButton("Remove Selected")
         self.btn_remove.setEnabled(False)
         btn_row.addWidget(self.btn_add_files)
@@ -53,9 +60,12 @@ class LibraryView(QWidget):
         layout.addWidget(self.tree, stretch=1)
 
         self.status = QLabel("Ready.")
+        self.status.setProperty("muted", True)
         layout.addWidget(self.status)
         self.progress = QProgressBar()
-        self.progress.setRange(0, 0)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(True)
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
 
@@ -94,19 +104,37 @@ class LibraryView(QWidget):
 
     def _ingest(self, paths: list[Path]) -> None:
         self._busy(True, f"Indexing {len(paths)} item(s)...")
+        self.progress.setValue(0)
 
-        def task() -> tuple[int, list[tuple[str, str]]]:
-            n = 0
-            skipped: list[tuple[str, str]] = []
-            for p in paths:
-                n += self.service.ingest_path(p)
-                skipped.extend(getattr(self.service.ingestion, "skipped", []))
-            return n, skipped
-
-        worker = Worker(task)
+        worker = Worker(self._ingest_task, paths)
+        # Feed the task a thread-safe way to report progress back to the UI.
+        worker.kwargs["report"] = worker.signals.progress.emit
+        worker.signals.progress.connect(self._on_progress)
         worker.signals.finished.connect(self._on_done)
         worker.signals.failed.connect(self._on_error)
         self.pool.start(worker)
+
+    def _ingest_task(
+        self,
+        paths: list[Path],
+        report: Callable[[float, str], None] | None = None,
+    ) -> tuple[int, list[tuple[str, str]]]:
+        n = 0
+        skipped: list[tuple[str, str]] = []
+        total = len(paths)
+        for i, p in enumerate(paths):
+            def relay(frac: float, label: str, _i: int = i) -> None:
+                if report is not None:
+                    # Scale each path's [0, 1] into its slice of the whole batch.
+                    report((_i + frac) / total, label)
+
+            n += self.service.ingest_path(p, progress=relay)
+            skipped.extend(getattr(self.service.ingestion, "skipped", []))
+        return n, skipped
+
+    def _on_progress(self, fraction: float, label: str) -> None:
+        self.progress.setValue(int(fraction * 100))
+        self.status.setText(label)
 
     def _on_done(self, result: tuple[int, list[tuple[str, str]]]) -> None:
         n, skipped = result

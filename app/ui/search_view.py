@@ -30,18 +30,24 @@ class SearchView(QWidget):
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(10)
 
         row = QHBoxLayout()
+        row.setSpacing(8)
         self.query = QLineEdit()
         self.query.setPlaceholderText(
             "Ask anything — e.g. 'what does fault 0x21 mean?'"
         )
+        self.query.setClearButtonEnabled(True)
         self.query.returnPressed.connect(self._run)
         self.top_n = QSpinBox()
         self.top_n.setRange(1, 25)
         self.top_n.setValue(5)
         self.top_n.setPrefix("top ")
         self.btn = QPushButton("Search")
+        self.btn.setProperty("accent", True)
+        self.btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn.clicked.connect(self._run)
         row.addWidget(self.query, stretch=1)
         row.addWidget(self.top_n)
@@ -63,6 +69,7 @@ class SearchView(QWidget):
         self.btn_open.setEnabled(False)
         self.btn_open.clicked.connect(self._open_selected)
         self.status = QLabel("Type a query and press Enter.")
+        self.status.setProperty("muted", True)
         actions.addWidget(self.btn_open)
         actions.addStretch(1)
         actions.addWidget(self.status)

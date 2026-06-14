@@ -8,6 +8,7 @@ from app.config import Settings
 from app.factory import build_app_service
 from app.logging_config import install_excepthook, setup_logging
 from app.ui.main_window import MainWindow
+from app.ui.theme import apply_theme
 
 
 def main() -> int:
@@ -18,6 +19,7 @@ def main() -> int:
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName("SEFM")
     qt_app.setOrganizationName("SEFM")
+    apply_theme(qt_app)
 
     service = build_app_service(with_llm=True)
     window = MainWindow(service)

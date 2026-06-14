@@ -16,9 +16,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.ui import theme
+
 _WHITE_SCROLL_SS = (
     "QScrollArea { background: white; border: none; }"
     " QScrollArea > QWidget { background: white; }"
+)
+_NAV_BAR_SS = (
+    f"#pdfNav {{ background: {theme.SURFACE};"
+    f" border-bottom: 1px solid {theme.BORDER}; }}"
 )
 
 # Approx height (px) of the Prev/Next nav bar in normal view.
@@ -28,7 +34,7 @@ _NAV_BAR_H = 42
 class PdfViewerDialog(QDialog):
     """Modal-less PDF viewer that opens at the cited page.
 
-    Pages render onto an explicit white pixmap so the dark palette doesn't bleed
+    Pages render onto an explicit white pixmap so the app chrome never bleeds
     into the PDF. Pass highlight_text to add yellow highlights on the cited page.
     The window is sized to the target page's aspect ratio.
     """
@@ -96,18 +102,24 @@ class PdfViewerDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _build_normal_view(self, layout: QVBoxLayout) -> None:
-        nav = QHBoxLayout()
-        nav.setContentsMargins(6, 4, 6, 4)
+        nav_bar = QWidget()
+        nav_bar.setObjectName("pdfNav")
+        nav_bar.setStyleSheet(_NAV_BAR_SS)
+        nav = QHBoxLayout(nav_bar)
+        nav.setContentsMargins(8, 6, 8, 6)
         self._prev_btn = QPushButton("◀  Prev")
+        self._prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._next_btn = QPushButton("Next  ▶")
+        self._next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._page_lbl = QLabel()
+        self._page_lbl.setProperty("muted", True)
         self._page_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         nav.addWidget(self._prev_btn)
         nav.addStretch()
         nav.addWidget(self._page_lbl)
         nav.addStretch()
         nav.addWidget(self._next_btn)
-        layout.addLayout(nav)
+        layout.addWidget(nav_bar)
 
         self._page_img = QLabel()
         self._page_img.setAlignment(

@@ -12,7 +12,7 @@ from app.generation.citation_guard import parse_citations, validate_answer
 from app.generation.prompts import build_prompt
 from app.indexing.keyword_store import KeywordStore
 from app.indexing.vector_store import VectorStore
-from app.ingestion.pipeline import IngestionPipeline
+from app.ingestion.pipeline import IngestionPipeline, ProgressCallback
 from app.logging_config import log_duration
 from app.registry import SourceRegistry
 from app.retrieval.hybrid import reciprocal_rank_fusion
@@ -49,10 +49,12 @@ class AppService:
         self.registry = registry
         self.llm = llm
 
-    def ingest_path(self, path: Path) -> int:
+    def ingest_path(
+        self, path: Path, progress: ProgressCallback | None = None
+    ) -> int:
         path = path.resolve()
         log.info("ingest_path: %s", path)
-        n = self.ingestion.run(path)
+        n = self.ingestion.run(path, progress=progress)
         if path.is_file():
             self.registry.remember(path.name, path)
         else:

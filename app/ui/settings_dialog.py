@@ -26,6 +26,7 @@ from app.hardware import (
     recommended_install_commands,
 )
 from app.service import AppService
+from app.ui import theme
 
 
 class SettingsDialog(QDialog):
@@ -36,9 +37,11 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.service = service
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(340)
+        self.setMinimumWidth(380)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(12)
 
         # --- LLM ---
         llm_box = QGroupBox("LLM")
@@ -94,7 +97,11 @@ class SettingsDialog(QDialog):
         report_label = QLabel(report)
         report_label.setWordWrap(True)
         report_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        report_label.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        report_label.setStyleSheet(
+            f"font-family: Consolas, monospace; font-size: 11px;"
+            f" background: {theme.SURFACE_ALT}; border: 1px solid {theme.BORDER};"
+            f" border-radius: 6px; padding: 8px;"
+        )
         hw_layout.addWidget(report_label)
 
         hw_form = QFormLayout()
@@ -114,19 +121,21 @@ class SettingsDialog(QDialog):
         self._orig_embedding_device = service.settings.embedding_device
 
         hw_note = QLabel("Acceleration & device are saved to .env and take effect after restart.")
-        hw_note.setStyleSheet("color: gray; font-size: 10px;")
+        hw_note.setProperty("muted", True)
         hw_layout.addWidget(hw_note)
 
         layout.addWidget(hw_box)
 
         note = QLabel("Changes apply for this session only. Edit .env to persist.")
-        note.setStyleSheet("color: gray; font-size: 10px;")
+        note.setProperty("muted", True)
         layout.addWidget(note)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Close
         )
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._apply)
+        apply_btn = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        apply_btn.setProperty("accent", True)
+        apply_btn.clicked.connect(self._apply)
         buttons.rejected.connect(self.close)
         layout.addWidget(buttons)
 

@@ -14,6 +14,8 @@ log = logging.getLogger(__name__)
 class _Signals(QObject):
     finished = Signal(object)
     failed = Signal(str)
+    # progress(fraction in [0, 1], label) — optional; not every task emits it.
+    progress = Signal(float, str)
 
 
 class Worker(QRunnable):
